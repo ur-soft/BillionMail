@@ -19,12 +19,14 @@ services:
         aliases:
           - pgsql
   redis-billionmail:
-    image: redis:7.4.2-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: redis
     hostname: redis
     entrypoint: ["/bin/sh", "/redis-conf.sh"]
     volumes:
       - ./redis-data:/data
-      - ./conf/redis/redis-conf.sh:/redis-conf.sh
     restart: always
     ports:
       - "${REDIS_PORT:-127.0.0.1:26379}:6379"
@@ -38,18 +40,18 @@ services:
         aliases:
           - redis
   rspamd-billionmail:
-    image: billionmail/rspamd:1.2
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: rspamd
     hostname: rspamd
     depends_on:
       - redis-billionmail
     environment:
       - TZ=${TZ}
       - REDISPASS=${REDISPASS}
-      - RETENTION_DAYS=${RETENTION_DAYS:-7}
+      - RETENTION_DAYS=${RETENTION_DAYS:-3}
     volumes:
-      - ./conf/rspamd/local.d:/etc/rspamd/local.d
-      - ./conf/rspamd/statistic.conf:/etc/rspamd/statistic.conf
-      - ./conf/rspamd/rspamd.conf:/etc/rspamd/rspamd.conf
       - ./rspamd-data:/var/lib/rspamd
       - ./logs/rspamd:/var/log/rspamd
     restart: always
@@ -58,7 +60,10 @@ services:
         aliases:
           - rspamd
   dovecot-billionmail:
-    image: billionmail/dovecot:1.6
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dovecot
     hostname: dovecot
     depends_on:
       - pgsql-billionmail
@@ -66,9 +71,6 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     volumes:
-      - ./conf/dovecot/conf.d:/etc/dovecot/conf.d
-      - ./conf/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf
-      - ./conf/dovecot/rsyslog.conf:/etc/rsyslog.conf
       - ./logs/dovecot:/var/log/mail
       - ./ssl:/etc/ssl/mail
       - ./ssl-self-signed:/etc/ssl/ssl-self-signed
@@ -82,7 +84,7 @@ services:
       - TZ=${TZ}
       - BILLIONMAIL_HOSTNAME=${BILLIONMAIL_HOSTNAME}
       - REDISPASS=${REDISPASS}
-      - RETENTION_DAYS=${RETENTION_DAYS:-7}
+      - RETENTION_DAYS=${RETENTION_DAYS:-3}
     ports:
       - "${IMAP_PORT:-143}:143"
       - "${IMAPS_PORT:-993}:993"
@@ -99,17 +101,15 @@ services:
         aliases:
           - dovecot
   postfix-billionmail:
-    image: billionmail/postfix:1.6
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: postfix
     hostname: postfix
     depends_on:
       pgsql-billionmail:
         condition: service_started
     volumes:
-      - ./conf/postfix/main.cf:/etc/postfix/main.cf
-      - ./conf/postfix/master.cf:/etc/postfix/master.cf
-      - ./conf/postfix/conf:/etc/postfix/conf
-      - ./conf/postfix/sql:/etc/postfix/sql
-      - ./conf/postfix/rsyslog.conf:/etc/rsyslog.conf
       - ./logs/postfix:/var/log/mail
       - ./ssl:/etc/ssl/mail
       - ./postfix-data:/var/spool/postfix
@@ -122,7 +122,7 @@ services:
       - DBPASS=${DBPASS}
       - REDISPASS=${REDISPASS}
       - BILLIONMAIL_HOSTNAME=${BILLIONMAIL_HOSTNAME}
-      - RETENTION_DAYS=${RETENTION_DAYS:-7}
+      - RETENTION_DAYS=${RETENTION_DAYS:-3}
     cap_add:
       - NET_BIND_SERVICE
     ports:
@@ -135,7 +135,10 @@ services:
         aliases:
           - postfix
   webmail-billionmail:
-    image: roundcube/roundcubemail:1.6.11-fpm-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: webmail
     hostname: roundcube
     depends_on:
       - pgsql-billionmail
@@ -143,9 +146,6 @@ services:
       - postfix-billionmail
     volumes:
       - ./webmail-data:/var/www/html
-      - ./conf/webmail/mime.types:/var/roundcube/config/mime.types
-      - ./conf/webmail:/var/roundcube/config
-      - ./conf/php:/usr/local/etc
       - ./php-sock/:/var/run/
     environment:
       - TZ=${TZ}
@@ -165,21 +165,21 @@ services:
         aliases:
           - webmail
   core-billionmail:
-    image: billionmail/core:4.9.1
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: core
     hostname: core-manage
     depends_on:
       - pgsql-billionmail
     volumes:
       - ./ssl:/etc/ssl/mail
       - ./ssl-self-signed:/etc/ssl/ssl-self-signed
-      - ./conf/core/fail2ban/filter.d:/etc/fail2ban/filter.d
-      - ./conf/core/fail2ban/jail.d:/etc/fail2ban/jail.d
       - ./logs/fail2ban:/var/log/fail2ban
       - ./postgresql-socket:/opt/billionmail/postgresql-socket
       - ./php-sock:/opt/billionmail/php-sock
       - ./rspamd-data:/opt/billionmail/rspamd-data
       - ./webmail-data:/opt/billionmail/webmail-data
-      - ./conf:/opt/billionmail/conf
       - ./logs:/opt/billionmail/logs
       - ./logs/core:/opt/billionmail/core/logs
       - ./core-data:/opt/billionmail/core/data
@@ -190,7 +190,7 @@ services:
         target: /opt/billionmail/.env
     environment:
       - TZ=${TZ}
-      - FAIL2BAN_INIT=${FAIL2BAN_INIT:-y}
+      - FAIL2BAN_INIT=${FAIL2BAN_INIT:-n}
     cap_add:
       - NET_BIND_SERVICE
       - NET_ADMIN
@@ -226,6 +226,6 @@ configs:
       HTTP_PORT=${HTTP_PORT:-8081}
       HTTPS_PORT=${HTTPS_PORT:-8444}
       TZ=${TZ}
-      FAIL2BAN_INIT=${FAIL2BAN_INIT:-y}
+      FAIL2BAN_INIT=${FAIL2BAN_INIT:-n}
       IP_WHITELIST_ENABLE=false
-      RETENTION_DAYS=${RETENTION_DAYS:-7}
+      RETENTION_DAYS=${RETENTION_DAYS:-3}
