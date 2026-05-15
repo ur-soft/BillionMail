@@ -10,14 +10,8 @@ services:
       POSTGRES_USER: ${DBUSER:?DBUSER is required}
       POSTGRES_PASSWORD: ${DBPASS:?DBPASS is required}
     volumes:
-      - type: bind
-        source: ./postgresql-data
-        target: /var/lib/postgresql/data
-        is_directory: true
-      - type: bind
-        source: ./postgresql-socket
-        target: /var/run/postgresql
-        is_directory: true
+      - ./postgresql-data:/var/lib/postgresql/data
+      - ./postgresql-socket:/var/run/postgresql
     networks:
       default:
         aliases:
@@ -33,10 +27,7 @@ services:
     sysctls:
       net.core.somaxconn: 4096
     volumes:
-      - type: bind
-        source: ./redis-data
-        target: /data
-        is_directory: true
+      - ./redis-data:/data
       - ./conf/redis/redis-conf.sh:/redis-conf.sh
     networks:
       default:
@@ -56,14 +47,8 @@ services:
       - ./conf/rspamd/local.d:/etc/rspamd/local.d
       - ./conf/rspamd/statistic.conf:/etc/rspamd/statistic.conf
       - ./conf/rspamd/rspamd.conf:/etc/rspamd/rspamd.conf
-      - type: bind
-        source: ./rspamd-data
-        target: /var/lib/rspamd
-        is_directory: true
-      - type: bind
-        source: ./logs/rspamd
-        target: /var/log/rspamd
-        is_directory: true
+      - ./rspamd-data:/var/lib/rspamd
+      - ./logs/rspamd:/var/log/rspamd
     networks:
       default:
         aliases:
@@ -94,27 +79,12 @@ services:
       - ./conf/dovecot/conf.d:/etc/dovecot/conf.d
       - ./conf/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf
       - ./conf/dovecot/rsyslog.conf:/etc/rsyslog.conf
-      - type: bind
-        source: ./logs/dovecot
-        target: /var/log/mail
-        is_directory: true
-      - type: bind
-        source: ./ssl
-        target: /etc/ssl/mail
-        is_directory: true
+      - ./logs/dovecot:/var/log/mail
+      - ./ssl:/etc/ssl/mail
       - ./ssl-self-signed:/etc/ssl/ssl-self-signed
-      - type: bind
-        source: ./vmail-data
-        target: /var/vmail
-        is_directory: true
-      - type: bind
-        source: ./rspamd-data
-        target: /var/lib/rspamd
-        is_directory: true
-      - type: bind
-        source: ./postgresql-socket
-        target: /var/run/postgresql
-        is_directory: true
+      - ./vmail-data:/var/vmail
+      - ./rspamd-data:/var/lib/rspamd
+      - ./postgresql-socket:/var/run/postgresql
     networks:
       default:
         aliases:
@@ -143,35 +113,14 @@ services:
     volumes:
       - ./conf/postfix/main.cf:/etc/postfix/main.cf
       - ./conf/postfix/master.cf:/etc/postfix/master.cf
-      - type: bind
-        source: ./conf/postfix/conf
-        target: /etc/postfix/conf
-        is_directory: true
-      - type: bind
-        source: ./conf/postfix/sql
-        target: /etc/postfix/sql
-        is_directory: true
+      - ./conf/postfix/conf:/etc/postfix/conf
+      - ./conf/postfix/sql:/etc/postfix/sql
       - ./conf/postfix/rsyslog.conf:/etc/rsyslog.conf
-      - type: bind
-        source: ./logs/postfix
-        target: /var/log/mail
-        is_directory: true
-      - type: bind
-        source: ./ssl
-        target: /etc/ssl/mail
-        is_directory: true
-      - type: bind
-        source: ./postfix-data
-        target: /var/spool/postfix
-        is_directory: true
-      - type: bind
-        source: ./rspamd-data
-        target: /var/lib/rspamd
-        is_directory: true
-      - type: bind
-        source: ./postgresql-socket
-        target: /var/run/postgresql
-        is_directory: true
+      - ./logs/postfix:/var/log/mail
+      - ./ssl:/etc/ssl/mail
+      - ./postfix-data:/var/spool/postfix
+      - ./rspamd-data:/var/lib/rspamd
+      - ./postgresql-socket:/var/run/postgresql
     networks:
       default:
         aliases:
@@ -197,17 +146,11 @@ services:
       ROUNDCUBEMAIL_SMTP_PORT: ${SMTP_PORT:-25}
       ROUNDCUBEMAIL_REQUEST_PATH: /roundcube
     volumes:
-      - type: bind
-        source: ./webmail-data
-        target: /var/www/html
-        is_directory: true
+      - ./webmail-data:/var/www/html
       - ./conf/webmail/mime.types:/var/roundcube/config/mime.types
       - ./conf/webmail:/var/roundcube/config
       - ./conf/php:/usr/local/etc
-      - type: bind
-        source: ./php-sock
-        target: /var/run
-        is_directory: true
+      - ./php-sock:/var/run
     networks:
       default:
         aliases:
@@ -221,7 +164,59 @@ services:
       - redis-billionmail
     environment:
       TZ: ${TZ:-America/Santo_Domingo}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?ADMIN_USERNAME is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      SafePath: ${SafePath:?SafePath is required}
+      BILLIONMAIL_HOSTNAME: ${BILLIONMAIL_HOSTNAME:?BILLIONMAIL_HOSTNAME is required}
+      DBNAME: ${DBNAME:?DBNAME is required}
+      DBUSER: ${DBUSER:?DBUSER is required}
+      DBPASS: ${DBPASS:?DBPASS is required}
+      REDISPASS: ${REDISPASS:?REDISPASS is required}
+      SMTP_PORT: ${SMTP_PORT:-25}
+      SMTPS_PORT: ${SMTPS_PORT:-465}
+      SUBMISSION_PORT: ${SUBMISSION_PORT:-587}
+      IMAP_PORT: ${IMAP_PORT:-143}
+      IMAPS_PORT: ${IMAPS_PORT:-993}
+      POP_PORT: ${POP_PORT:-110}
+      POPS_PORT: ${POPS_PORT:-995}
+      HTTP_PORT: ${HTTP_PORT:-80}
+      HTTPS_PORT: ${HTTPS_PORT:-443}
+      IPV4_NETWORK: ${IPV4_NETWORK:-172.66.1}
       FAIL2BAN_INIT: ${FAIL2BAN_INIT:-y}
+      IP_WHITELIST_ENABLE: ${IP_WHITELIST_ENABLE:-false}
+      RETENTION_DAYS: ${RETENTION_DAYS:-7}
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        cat > /opt/billionmail/.env <<EOF
+        ADMIN_USERNAME=$${ADMIN_USERNAME}
+        ADMIN_PASSWORD=$${ADMIN_PASSWORD}
+        SafePath=$${SafePath}
+        BILLIONMAIL_HOSTNAME=$${BILLIONMAIL_HOSTNAME}
+        DBNAME=$${DBNAME}
+        DBUSER=$${DBUSER}
+        DBPASS=$${DBPASS}
+        REDISPASS=$${REDISPASS}
+        SMTP_PORT=$${SMTP_PORT}
+        SMTPS_PORT=$${SMTPS_PORT}
+        SUBMISSION_PORT=$${SUBMISSION_PORT}
+        IMAP_PORT=$${IMAP_PORT}
+        IMAPS_PORT=$${IMAPS_PORT}
+        POP_PORT=$${POP_PORT}
+        POPS_PORT=$${POPS_PORT}
+        REDIS_PORT=127.0.0.1:26379
+        SQL_PORT=127.0.0.1:25432
+        HTTP_PORT=$${HTTP_PORT}
+        HTTPS_PORT=$${HTTPS_PORT}
+        TZ=$${TZ}
+        IPV4_NETWORK=$${IPV4_NETWORK}
+        FAIL2BAN_INIT=$${FAIL2BAN_INIT}
+        IP_WHITELIST_ENABLE=$${IP_WHITELIST_ENABLE}
+        RETENTION_DAYS=$${RETENTION_DAYS}
+        EOF
+        exec /core.sh "$$@"
+      - --
     cap_add:
       - NET_BIND_SERVICE
       - NET_ADMIN
@@ -230,85 +225,21 @@ services:
       - "80"
       - "443"
     volumes:
-      - type: bind
-        source: ./ssl
-        target: /etc/ssl/mail
-        is_directory: true
+      - ./ssl:/etc/ssl/mail
       - ./ssl-self-signed:/etc/ssl/ssl-self-signed
-      - type: bind
-        source: ./conf/core/fail2ban/filter.d
-        target: /etc/fail2ban/filter.d
-        is_directory: true
-      - type: bind
-        source: ./conf/core/fail2ban/jail.d
-        target: /etc/fail2ban/jail.d
-        is_directory: true
-      - type: bind
-        source: ./logs/fail2ban
-        target: /var/log/fail2ban
-        is_directory: true
-      - type: bind
-        source: ./postgresql-socket
-        target: /opt/billionmail/postgresql-socket
-        is_directory: true
-      - type: bind
-        source: ./php-sock
-        target: /opt/billionmail/php-sock
-        is_directory: true
-      - type: bind
-        source: ./rspamd-data
-        target: /opt/billionmail/rspamd-data
-        is_directory: true
-      - type: bind
-        source: ./webmail-data
-        target: /opt/billionmail/webmail-data
-        is_directory: true
-      - type: bind
-        source: ./.env
-        target: /opt/billionmail/.env
-        content: |
-          ADMIN_USERNAME=${ADMIN_USERNAME:?ADMIN_USERNAME is required}
-          ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
-          SafePath=${SafePath:?SafePath is required}
-          BILLIONMAIL_HOSTNAME=${BILLIONMAIL_HOSTNAME:?BILLIONMAIL_HOSTNAME is required}
-          DBNAME=${DBNAME:?DBNAME is required}
-          DBUSER=${DBUSER:?DBUSER is required}
-          DBPASS=${DBPASS:?DBPASS is required}
-          REDISPASS=${REDISPASS:?REDISPASS is required}
-          SMTP_PORT=${SMTP_PORT:-25}
-          SMTPS_PORT=${SMTPS_PORT:-465}
-          SUBMISSION_PORT=${SUBMISSION_PORT:-587}
-          IMAP_PORT=${IMAP_PORT:-143}
-          IMAPS_PORT=${IMAPS_PORT:-993}
-          POP_PORT=${POP_PORT:-110}
-          POPS_PORT=${POPS_PORT:-995}
-          REDIS_PORT=127.0.0.1:26379
-          SQL_PORT=127.0.0.1:25432
-          HTTP_PORT=${HTTP_PORT:-80}
-          HTTPS_PORT=${HTTPS_PORT:-443}
-          TZ=${TZ:-America/Santo_Domingo}
-          IPV4_NETWORK=${IPV4_NETWORK:-172.66.1}
-          FAIL2BAN_INIT=${FAIL2BAN_INIT:-y}
-          IP_WHITELIST_ENABLE=${IP_WHITELIST_ENABLE:-false}
-          RETENTION_DAYS=${RETENTION_DAYS:-7}
+      - ./conf/core/fail2ban/filter.d:/etc/fail2ban/filter.d
+      - ./conf/core/fail2ban/jail.d:/etc/fail2ban/jail.d
+      - ./logs/fail2ban:/var/log/fail2ban
+      - ./postgresql-socket:/opt/billionmail/postgresql-socket
+      - ./php-sock:/opt/billionmail/php-sock
+      - ./rspamd-data:/opt/billionmail/rspamd-data
+      - ./webmail-data:/opt/billionmail/webmail-data
       - ./conf:/opt/billionmail/conf
-      - type: bind
-        source: ./logs
-        target: /opt/billionmail/logs
-        is_directory: true
-      - type: bind
-        source: ./logs/core
-        target: /opt/billionmail/core/logs
-        is_directory: true
-      - type: bind
-        source: ./core-data
-        target: /opt/billionmail/core/data
-        is_directory: true
+      - ./logs:/opt/billionmail/logs
+      - ./logs/core:/opt/billionmail/core/logs
+      - ./core-data:/opt/billionmail/core/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - type: bind
-        source: ./vmail-data
-        target: /opt/billionmail/vmail-data
-        is_directory: true
+      - ./vmail-data:/opt/billionmail/vmail-data
     networks:
       default:
         aliases:
