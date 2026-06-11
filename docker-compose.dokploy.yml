@@ -54,7 +54,7 @@ services:
       - ./conf/rspamd/local.d:/etc/rspamd/local.d
       - ./conf/rspamd/statistic.conf:/etc/rspamd/statistic.conf
       - ./conf/rspamd/rspamd.conf:/etc/rspamd/rspamd.conf
-      - ./rspamd-data:/var/lib/rspamd
+      - rspamd-data:/var/lib/rspamd
       - ./logs/rspamd:/var/log/rspamd
     networks:
       billionmail-network:
@@ -90,8 +90,8 @@ services:
       - ./logs/dovecot:/var/log/mail
       - ./ssl:/etc/ssl/mail
       - ./ssl-self-signed:/etc/ssl/ssl-self-signed
-      - ./vmail-data:/var/vmail
-      - ./rspamd-data:/var/lib/rspamd
+      - vmail-data:/var/vmail
+      - rspamd-data:/var/lib/rspamd
       - ./postgresql-socket:/var/run/postgresql
     ulimits:
       nproc: 65535
@@ -132,8 +132,8 @@ services:
       - ./conf/postfix/rsyslog.conf:/etc/rsyslog.conf
       - ./logs/postfix:/var/log/mail
       - ./ssl:/etc/ssl/mail
-      - ./postfix-data:/var/spool/postfix
-      - ./rspamd-data:/var/lib/rspamd
+      - postfix-data:/var/spool/postfix
+      - rspamd-data:/var/lib/rspamd
       - ./postgresql-socket:/var/run/postgresql
     networks:
       billionmail-network:
@@ -195,7 +195,7 @@ services:
       - ./logs/fail2ban:/var/log/fail2ban
       - ./postgresql-socket:/opt/billionmail/postgresql-socket
       - ./php-sock:/opt/billionmail/php-sock
-      - ./rspamd-data:/opt/billionmail/rspamd-data
+      - rspamd-data:/opt/billionmail/rspamd-data
       - ./webmail-data:/opt/billionmail/webmail-data
       - ./.env:/opt/billionmail/.env
       - ./conf:/opt/billionmail/conf
@@ -203,7 +203,7 @@ services:
       - ./logs/core:/opt/billionmail/core/logs
       - ./core-data:/opt/billionmail/core/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./vmail-data:/opt/billionmail/vmail-data
+      - vmail-data:/opt/billionmail/vmail-data
     networks:
       billionmail-network:
         aliases:
@@ -234,3 +234,8 @@ networks:
 
   dokploy-network:
     external: true
+
+volumes:
+  postfix-data:
+  vmail-data:
+  rspamd-data:
