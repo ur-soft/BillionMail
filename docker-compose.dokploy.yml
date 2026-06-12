@@ -17,8 +17,21 @@ services:
       - -c
       - |
         set -e
-        cp -an /seed/conf/. /target/conf/
-        cp -an /seed/ssl-self-signed/. /target/ssl/
+        seed() {
+          src="$$1"; dst="$$2"
+          cd "$$src"
+          find . -type f | while IFS= read -r f; do
+            t="$$dst/$${f#./}"
+            if [ -d "$$t" ]; then rm -rf "$$t"; fi
+            if [ ! -e "$$t" ]; then
+              mkdir -p "$$(dirname "$$t")"
+              cp -p "$$f" "$$t"
+            fi
+          done
+          cd /
+        }
+        seed /seed/conf /target/conf
+        seed /seed/ssl-self-signed /target/ssl
         echo "BillionMail: configuration seeded."
 
   pgsql-billionmail:
@@ -91,10 +104,19 @@ services:
       <<: *default-tz
       REDISPASS: ${REDISPASS:?REDISPASS is required}
       RETENTION_DAYS: ${RETENTION_DAYS:-7}
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        ln -sf /opt/billionmail/conf/rspamd/rspamd.conf /etc/rspamd/rspamd.conf
+        ln -sf /opt/billionmail/conf/rspamd/statistic.conf /etc/rspamd/statistic.conf
+        rm -rf /etc/rspamd/local.d
+        ln -s /opt/billionmail/conf/rspamd/local.d /etc/rspamd/local.d
+        exec /rspamd.sh "$$@"
+      - --
+    command: ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
     volumes:
-      - ../files/conf/rspamd/local.d:/etc/rspamd/local.d
-      - ../files/conf/rspamd/statistic.conf:/etc/rspamd/statistic.conf
-      - ../files/conf/rspamd/rspamd.conf:/etc/rspamd/rspamd.conf
+      - ../files/conf/rspamd:/opt/billionmail/conf/rspamd
       - rspamd-data:/var/lib/rspamd
       - ../files/logs/rspamd:/var/log/rspamd
     networks:
@@ -123,15 +145,24 @@ services:
       REDISPASS: ${REDISPASS:?REDISPASS is required}
       BILLIONMAIL_HOSTNAME: ${BILLIONMAIL_HOSTNAME:?BILLIONMAIL_HOSTNAME is required}
       RETENTION_DAYS: ${RETENTION_DAYS:-7}
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        ln -sf /opt/billionmail/conf/dovecot/dovecot.conf /etc/dovecot/dovecot.conf
+        ln -sf /opt/billionmail/conf/dovecot/rsyslog.conf /etc/rsyslog.conf
+        rm -rf /etc/dovecot/conf.d
+        ln -s /opt/billionmail/conf/dovecot/conf.d /etc/dovecot/conf.d
+        exec /dovecot.sh "$$@"
+      - --
+    command: ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
     ports:
       - "${IMAP_PORT:-143}:143"
       - "${IMAPS_PORT:-993}:993"
       - "${POP_PORT:-110}:110"
       - "${POPS_PORT:-995}:995"
     volumes:
-      - ../files/conf/dovecot/conf.d:/etc/dovecot/conf.d
-      - ../files/conf/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf
-      - ../files/conf/dovecot/rsyslog.conf:/etc/rsyslog.conf
+      - ../files/conf/dovecot:/opt/billionmail/conf/dovecot
       - ../files/logs/dovecot:/var/log/mail
       - ../files/ssl:/etc/ssl/mail
       - ./ssl-self-signed:/etc/ssl/ssl-self-signed:ro
@@ -169,16 +200,26 @@ services:
       REDISPASS: ${REDISPASS:?REDISPASS is required}
       BILLIONMAIL_HOSTNAME: ${BILLIONMAIL_HOSTNAME:?BILLIONMAIL_HOSTNAME is required}
       RETENTION_DAYS: ${RETENTION_DAYS:-7}
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        mkdir -p /opt/billionmail/conf/postfix/conf /opt/billionmail/conf/postfix/sql
+        ln -sf /opt/billionmail/conf/postfix/main.cf /etc/postfix/main.cf
+        ln -sf /opt/billionmail/conf/postfix/master.cf /etc/postfix/master.cf
+        ln -sf /opt/billionmail/conf/postfix/rsyslog.conf /etc/rsyslog.conf
+        rm -rf /etc/postfix/conf /etc/postfix/sql
+        ln -s /opt/billionmail/conf/postfix/conf /etc/postfix/conf
+        ln -s /opt/billionmail/conf/postfix/sql /etc/postfix/sql
+        exec "$$@"
+      - --
+    command: ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
     ports:
       - "${SMTP_PORT:-25}:25"
       - "${SMTPS_PORT:-465}:465"
       - "${SUBMISSION_PORT:-587}:587"
     volumes:
-      - ../files/conf/postfix/main.cf:/etc/postfix/main.cf
-      - ../files/conf/postfix/master.cf:/etc/postfix/master.cf
-      - ../files/conf/postfix/conf:/etc/postfix/conf
-      - ../files/conf/postfix/sql:/etc/postfix/sql
-      - ../files/conf/postfix/rsyslog.conf:/etc/rsyslog.conf
+      - ../files/conf/postfix:/opt/billionmail/conf/postfix
       - ../files/logs/postfix:/var/log/mail
       - ../files/ssl:/etc/ssl/mail
       - postfix-data:/var/spool/postfix
