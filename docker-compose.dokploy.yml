@@ -32,6 +32,7 @@ services:
         }
         seed /seed/conf /target/conf
         seed /seed/ssl-self-signed /target/ssl
+        mkdir -p /target/conf/askai
         echo "BillionMail: configuration seeded."
 
   pgsql-billionmail:
