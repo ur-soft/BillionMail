@@ -1,20 +1,47 @@
 name: billionmail
 
+x-tz: &default-tz
+  TZ: ${TZ:-Etc/UTC}
+
 services:
+  config-seeder:
+    image: alpine:3.20
+    restart: "no"
+    volumes:
+      - ./conf:/seed/conf:ro
+      - ./ssl-self-signed:/seed/ssl-self-signed:ro
+      - ../files/conf:/target/conf
+      - ../files/ssl:/target/ssl
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        cp -an /seed/conf/. /target/conf/
+        cp -an /seed/ssl-self-signed/. /target/ssl/
+        echo "BillionMail: configuration seeded."
+
   pgsql-billionmail:
     image: postgres:17.4-alpine
     hostname: pgsql
     restart: unless-stopped
+    depends_on:
+      config-seeder:
+        condition: service_completed_successfully
     environment:
-      TZ: ${TZ:-America/Santo_Domingo}
+      <<: *default-tz
       POSTGRES_DB: ${DBNAME:?DBNAME is required}
       POSTGRES_USER: ${DBUSER:?DBUSER is required}
       POSTGRES_PASSWORD: ${DBPASS:?DBPASS is required}
     volumes:
-      - ./postgresql-data:/var/lib/postgresql/data
-      - ./postgresql-socket:/var/run/postgresql
-    ports:
-      - "${SQL_PORT:-127.0.0.1:25432}:5432"
+      - postgresql-data:/var/lib/postgresql/data
+      - postgresql-socket:/var/run/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       billionmail-network:
         aliases:
@@ -24,17 +51,28 @@ services:
     image: redis:7.4.2-alpine
     hostname: redis
     restart: unless-stopped
-    entrypoint: ["/bin/sh", "/redis-conf.sh"]
+    depends_on:
+      config-seeder:
+        condition: service_completed_successfully
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        printf 'requirepass %s\n' "$$REDISPASS" > /redis.conf
+        exec redis-server /redis.conf
     environment:
-      TZ: ${TZ:-America/Santo_Domingo}
+      <<: *default-tz
       REDISPASS: ${REDISPASS:?REDISPASS is required}
     sysctls:
       net.core.somaxconn: 4096
     volumes:
-      - ./redis-data:/data
-      - ./conf/redis/redis-conf.sh:/redis-conf.sh
-    ports:
-      - "${REDIS_PORT:-127.0.0.1:26379}:6379"
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDISPASS\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       billionmail-network:
         aliases:
@@ -45,17 +83,20 @@ services:
     hostname: rspamd
     restart: unless-stopped
     depends_on:
-      - redis-billionmail
+      config-seeder:
+        condition: service_completed_successfully
+      redis-billionmail:
+        condition: service_healthy
     environment:
-      TZ: ${TZ:-America/Santo_Domingo}
+      <<: *default-tz
       REDISPASS: ${REDISPASS:?REDISPASS is required}
       RETENTION_DAYS: ${RETENTION_DAYS:-7}
     volumes:
-      - ./conf/rspamd/local.d:/etc/rspamd/local.d
-      - ./conf/rspamd/statistic.conf:/etc/rspamd/statistic.conf
-      - ./conf/rspamd/rspamd.conf:/etc/rspamd/rspamd.conf
+      - ../files/conf/rspamd/local.d:/etc/rspamd/local.d
+      - ../files/conf/rspamd/statistic.conf:/etc/rspamd/statistic.conf
+      - ../files/conf/rspamd/rspamd.conf:/etc/rspamd/rspamd.conf
       - rspamd-data:/var/lib/rspamd
-      - ./logs/rspamd:/var/log/rspamd
+      - ../files/logs/rspamd:/var/log/rspamd
     networks:
       billionmail-network:
         aliases:
@@ -66,12 +107,16 @@ services:
     hostname: dovecot
     restart: unless-stopped
     depends_on:
-      - pgsql-billionmail
-      - redis-billionmail
+      config-seeder:
+        condition: service_completed_successfully
+      pgsql-billionmail:
+        condition: service_healthy
+      redis-billionmail:
+        condition: service_healthy
     cap_add:
       - NET_BIND_SERVICE
     environment:
-      TZ: ${TZ:-America/Santo_Domingo}
+      <<: *default-tz
       DBNAME: ${DBNAME:?DBNAME is required}
       DBUSER: ${DBUSER:?DBUSER is required}
       DBPASS: ${DBPASS:?DBPASS is required}
@@ -84,15 +129,15 @@ services:
       - "${POP_PORT:-110}:110"
       - "${POPS_PORT:-995}:995"
     volumes:
-      - ./conf/dovecot/conf.d:/etc/dovecot/conf.d
-      - ./conf/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf
-      - ./conf/dovecot/rsyslog.conf:/etc/rsyslog.conf
-      - ./logs/dovecot:/var/log/mail
-      - ./ssl:/etc/ssl/mail
-      - ./ssl-self-signed:/etc/ssl/ssl-self-signed
+      - ../files/conf/dovecot/conf.d:/etc/dovecot/conf.d
+      - ../files/conf/dovecot/dovecot.conf:/etc/dovecot/dovecot.conf
+      - ../files/conf/dovecot/rsyslog.conf:/etc/rsyslog.conf
+      - ../files/logs/dovecot:/var/log/mail
+      - ../files/ssl:/etc/ssl/mail
+      - ./ssl-self-signed:/etc/ssl/ssl-self-signed:ro
       - vmail-data:/var/vmail
       - rspamd-data:/var/lib/rspamd
-      - ./postgresql-socket:/var/run/postgresql
+      - postgresql-socket:/var/run/postgresql
     ulimits:
       nproc: 65535
       nofile:
@@ -108,12 +153,16 @@ services:
     hostname: postfix
     restart: unless-stopped
     depends_on:
+      config-seeder:
+        condition: service_completed_successfully
       pgsql-billionmail:
-        condition: service_started
+        condition: service_healthy
+      redis-billionmail:
+        condition: service_healthy
     cap_add:
       - NET_BIND_SERVICE
     environment:
-      TZ: ${TZ:-America/Santo_Domingo}
+      <<: *default-tz
       DBNAME: ${DBNAME:?DBNAME is required}
       DBUSER: ${DBUSER:?DBUSER is required}
       DBPASS: ${DBPASS:?DBPASS is required}
@@ -125,16 +174,16 @@ services:
       - "${SMTPS_PORT:-465}:465"
       - "${SUBMISSION_PORT:-587}:587"
     volumes:
-      - ./conf/postfix/main.cf:/etc/postfix/main.cf
-      - ./conf/postfix/master.cf:/etc/postfix/master.cf
-      - ./conf/postfix/conf:/etc/postfix/conf
-      - ./conf/postfix/sql:/etc/postfix/sql
-      - ./conf/postfix/rsyslog.conf:/etc/rsyslog.conf
-      - ./logs/postfix:/var/log/mail
-      - ./ssl:/etc/ssl/mail
+      - ../files/conf/postfix/main.cf:/etc/postfix/main.cf
+      - ../files/conf/postfix/master.cf:/etc/postfix/master.cf
+      - ../files/conf/postfix/conf:/etc/postfix/conf
+      - ../files/conf/postfix/sql:/etc/postfix/sql
+      - ../files/conf/postfix/rsyslog.conf:/etc/rsyslog.conf
+      - ../files/logs/postfix:/var/log/mail
+      - ../files/ssl:/etc/ssl/mail
       - postfix-data:/var/spool/postfix
       - rspamd-data:/var/lib/rspamd
-      - ./postgresql-socket:/var/run/postgresql
+      - postgresql-socket:/var/run/postgresql
     networks:
       billionmail-network:
         aliases:
@@ -145,27 +194,31 @@ services:
     hostname: roundcube
     restart: unless-stopped
     depends_on:
-      - pgsql-billionmail
-      - dovecot-billionmail
-      - postfix-billionmail
+      config-seeder:
+        condition: service_completed_successfully
+      pgsql-billionmail:
+        condition: service_healthy
+      dovecot-billionmail:
+        condition: service_started
+      postfix-billionmail:
+        condition: service_started
     environment:
-      TZ: ${TZ:-America/Santo_Domingo}
+      <<: *default-tz
       ROUNDCUBEMAIL_DB_TYPE: pgsql
       ROUNDCUBEMAIL_DB_HOST: pgsql
       ROUNDCUBEMAIL_DB_NAME: ${DBNAME:?DBNAME is required}
       ROUNDCUBEMAIL_DB_USER: ${DBUSER:?DBUSER is required}
       ROUNDCUBEMAIL_DB_PASSWORD: ${DBPASS:?DBPASS is required}
       ROUNDCUBEMAIL_DEFAULT_HOST: dovecot
-      ROUNDCUBEMAIL_DEFAULT_PORT: ${IMAP_PORT:-143}
+      ROUNDCUBEMAIL_DEFAULT_PORT: 143
       ROUNDCUBEMAIL_SMTP_SERVER: postfix
-      ROUNDCUBEMAIL_SMTP_PORT: ${SMTP_PORT:-25}
+      ROUNDCUBEMAIL_SMTP_PORT: 25
       ROUNDCUBEMAIL_REQUEST_PATH: /roundcube
     volumes:
-      - ./webmail-data:/var/www/html
-      - ./conf/webmail/mime.types:/var/roundcube/config/mime.types
-      - ./conf/webmail:/var/roundcube/config
-      - ./conf/php:/usr/local/etc
-      - ./php-sock:/var/run
+      - webmail-data:/var/www/html
+      - ../files/conf/webmail:/var/roundcube/config
+      - ../files/conf/php:/usr/local/etc
+      - php-sock:/var/run
     networks:
       billionmail-network:
         aliases:
@@ -176,11 +229,67 @@ services:
     hostname: core-manage
     restart: unless-stopped
     depends_on:
-      - pgsql-billionmail
-      - redis-billionmail
+      config-seeder:
+        condition: service_completed_successfully
+      pgsql-billionmail:
+        condition: service_healthy
+      redis-billionmail:
+        condition: service_healthy
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        cat > /opt/billionmail/.env <<EOF
+        ADMIN_USERNAME=$${ADMIN_USERNAME}
+        ADMIN_PASSWORD=$${ADMIN_PASSWORD}
+        SafePath=$${SafePath}
+        BILLIONMAIL_HOSTNAME=$${BILLIONMAIL_HOSTNAME}
+        DBNAME=$${DBNAME}
+        DBUSER=$${DBUSER}
+        DBPASS=$${DBPASS}
+        REDISPASS=$${REDISPASS}
+        SMTP_PORT=$${SMTP_PORT}
+        SMTPS_PORT=$${SMTPS_PORT}
+        SUBMISSION_PORT=$${SUBMISSION_PORT}
+        IMAP_PORT=$${IMAP_PORT}
+        IMAPS_PORT=$${IMAPS_PORT}
+        POP_PORT=$${POP_PORT}
+        POPS_PORT=$${POPS_PORT}
+        REDIS_PORT=127.0.0.1:26379
+        SQL_PORT=127.0.0.1:25432
+        HTTP_PORT=80
+        HTTPS_PORT=443
+        TZ=$${TZ}
+        IPV4_NETWORK=$${IPV4_NETWORK}
+        FAIL2BAN_INIT=$${FAIL2BAN_INIT}
+        IP_WHITELIST_ENABLE=$${IP_WHITELIST_ENABLE}
+        RETENTION_DAYS=$${RETENTION_DAYS}
+        EOF
+        exec /core.sh "$$@"
+      - --
+    command: ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
     environment:
-      TZ: ${TZ:-America/Santo_Domingo}
+      <<: *default-tz
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?ADMIN_USERNAME is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      SafePath: ${SafePath:?SafePath is required}
+      BILLIONMAIL_HOSTNAME: ${BILLIONMAIL_HOSTNAME:?BILLIONMAIL_HOSTNAME is required}
+      DBNAME: ${DBNAME:?DBNAME is required}
+      DBUSER: ${DBUSER:?DBUSER is required}
+      DBPASS: ${DBPASS:?DBPASS is required}
+      REDISPASS: ${REDISPASS:?REDISPASS is required}
+      SMTP_PORT: ${SMTP_PORT:-25}
+      SMTPS_PORT: ${SMTPS_PORT:-465}
+      SUBMISSION_PORT: ${SUBMISSION_PORT:-587}
+      IMAP_PORT: ${IMAP_PORT:-143}
+      IMAPS_PORT: ${IMAPS_PORT:-993}
+      POP_PORT: ${POP_PORT:-110}
+      POPS_PORT: ${POPS_PORT:-995}
+      IPV4_NETWORK: ${IPV4_NETWORK:-172.66.1}
       FAIL2BAN_INIT: ${FAIL2BAN_INIT:-y}
+      IP_WHITELIST_ENABLE: ${IP_WHITELIST_ENABLE:-false}
+      RETENTION_DAYS: ${RETENTION_DAYS:-7}
     cap_add:
       - NET_BIND_SERVICE
       - NET_ADMIN
@@ -188,20 +297,19 @@ services:
     expose:
       - "80"
     volumes:
-      - ./ssl:/etc/ssl/mail
-      - ./ssl-self-signed:/etc/ssl/ssl-self-signed
-      - ./conf/core/fail2ban/filter.d:/etc/fail2ban/filter.d
-      - ./conf/core/fail2ban/jail.d:/etc/fail2ban/jail.d
-      - ./logs/fail2ban:/var/log/fail2ban
-      - ./postgresql-socket:/opt/billionmail/postgresql-socket
-      - ./php-sock:/opt/billionmail/php-sock
+      - ../files/ssl:/etc/ssl/mail
+      - ./ssl-self-signed:/etc/ssl/ssl-self-signed:ro
+      - ../files/conf/core/fail2ban/filter.d:/etc/fail2ban/filter.d
+      - ../files/conf/core/fail2ban/jail.d:/etc/fail2ban/jail.d
+      - ../files/logs/fail2ban:/var/log/fail2ban
+      - postgresql-socket:/opt/billionmail/postgresql-socket
+      - php-sock:/opt/billionmail/php-sock
       - rspamd-data:/opt/billionmail/rspamd-data
-      - ./webmail-data:/opt/billionmail/webmail-data
-      - ./.env:/opt/billionmail/.env
-      - ./conf:/opt/billionmail/conf
-      - ./logs:/opt/billionmail/logs
-      - ./logs/core:/opt/billionmail/core/logs
-      - ./core-data:/opt/billionmail/core/data
+      - webmail-data:/opt/billionmail/webmail-data
+      - ../files/conf:/opt/billionmail/conf
+      - ../files/logs:/opt/billionmail/logs
+      - ../files/logs/core:/opt/billionmail/core/logs
+      - core-data:/opt/billionmail/core/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - vmail-data:/opt/billionmail/vmail-data
     networks:
@@ -209,18 +317,6 @@ services:
         aliases:
           - core
       dokploy-network: {}
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=dokploy-network
-      - traefik.http.routers.billionmail.rule=Host(`${BILLIONMAIL_HOSTNAME}`)
-      - traefik.http.routers.billionmail.entrypoints=web
-      - traefik.http.routers.billionmail.middlewares=redirect-to-https@file
-      - traefik.http.routers.billionmail.service=billionmail
-      - traefik.http.services.billionmail.loadbalancer.server.port=80
-      - traefik.http.routers.billionmail-secure.rule=Host(`${BILLIONMAIL_HOSTNAME}`)
-      - traefik.http.routers.billionmail-secure.entrypoints=websecure
-      - traefik.http.routers.billionmail-secure.tls.certresolver=letsencrypt
-      - traefik.http.routers.billionmail-secure.service=billionmail
 
 networks:
   billionmail-network:
@@ -231,11 +327,16 @@ networks:
       driver: default
       config:
         - subnet: ${IPV4_NETWORK:-172.66.1}.0/24
-
   dokploy-network:
     external: true
 
 volumes:
-  postfix-data:
-  vmail-data:
+  postgresql-data:
+  postgresql-socket:
+  redis-data:
   rspamd-data:
+  vmail-data:
+  postfix-data:
+  webmail-data:
+  php-sock:
+  core-data:
